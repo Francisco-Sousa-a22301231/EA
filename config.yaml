@@ -1,0 +1,51 @@
+session_tz: America/New_York
+
+# --- Signal gates (stricter; favor real expansions) ---
+rvol_lookback: 96          # longer baseline volume
+rvol_threshold: 2.6        # require strong volume confirmation
+breakout_lookback: 128     # only break meaningful prior highs
+atr_lookback: 14
+atr_pct_min: 0.006         # avoid micro-stops in quiet regimes
+
+# --- Trend filters (stronger regime filter) ---
+trend_ema_len: 144         # ~1.5 days on 15m bars
+htf_minutes: 60
+htf_ema_len: 96            # stricter 1h trend confirmation
+
+# --- Intraday window (crypto 24/7; keep full day) ---
+intraday_start_h: 0
+intraday_start_m: 0
+intraday_end_h: 23
+intraday_end_m: 59
+
+# --- Risk & exits (smaller size, wider stops, fewer trades) ---
+risk_per_trade: 0.0015     # 0.15% per trade
+sl_atr_mult: 2.2
+tp_atr_mult: 4.4           # ~2R
+use_trailing: false        # add later if stable
+trail_atr_mult: 2.0
+cooldown_bars: 24          # don't re-enter immediately
+max_daily_loss_pct: 0.01   # circuit breaker at -1% daily
+
+# --- Fees & slippage ---
+fee_model: maker_taker
+entry_is_taker: true
+exit_is_taker: true
+taker_fee_pct: 0.0006
+maker_rebate_pct: 0.0002
+commission_pct: 0.0005
+slippage_pct: 0.0008
+
+venues:
+  binance:
+    taker_fee_pct: 0.0004
+    maker_rebate_pct: 0.0001
+    slippage_pct: 0.0007
+  bybit:
+    taker_fee_pct: 0.00055
+    maker_rebate_pct: 0.0002
+    slippage_pct: 0.0010
+
+# --- Backtest ---
+initial_equity: 10000
+seed: 42
