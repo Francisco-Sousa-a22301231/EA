@@ -72,43 +72,56 @@ python3 volume_breakout_bot.py   --csv ./binance_BTCUSDT_15m_to_2023/BTCUSDT_15m
 ## Config (key knobs)
 
 ```yaml
-# config.pro.yaml (excerpt of important fields)
-session_tz: America/New_York
+# config.yaml — parameter reference
 
-# Signal gates
-rvol_lookback: 96          # baseline volume window
-rvol_threshold: 2.6        # require strong volume
-breakout_lookback: 128     # meaningful prior-high breakouts
-atr_lookback: 14
-atr_pct_min: 0.006         # block quiet regimes (tiny stops)
+# --- Session & timezone ---
+session_tz: Defines the timezone used for session segmentation (default: America/New_York).
 
-# Trend filters
-trend_ema_len: 144
-htf_minutes: 60
-htf_ema_len: 96
+# --- Signal gates ---
+rvol_lookback: Number of bars used to calculate the average volume baseline for relative volume (RVOL).
+rvol_threshold: Minimum RVOL value required for trade activation — filters out weak volume breakouts.
+breakout_lookback: Number of past bars to determine the “previous high” or “breakout level”.
+atr_lookback: Number of bars used for ATR (Average True Range) smoothing.
+atr_pct_min: Minimum acceptable ATR as a percentage of price to avoid trading during quiet or low-volatility periods.
 
-# Risk/exits
-risk_per_trade: 0.0015
-sl_atr_mult: 2.2
-tp_atr_mult: 4.4
-use_trailing: false
-cooldown_bars: 24
-max_daily_loss_pct: 0.01
+# --- Trend filters ---
+trend_ema_len: Length of EMA used on the execution timeframe to determine base trend direction.
+htf_minutes: Length of the higher timeframe in minutes (e.g., 60 = 1h) used for additional trend confirmation.
+htf_ema_len: EMA length for higher timeframe trend confirmation.
 
-# Fees/slippage + venue overrides
-fee_model: maker_taker
-entry_is_taker: true
-exit_is_taker: true
-taker_fee_pct: 0.0006
-slippage_pct: 0.0008
+# --- Risk management & exits ---
+risk_per_trade: Fraction of total equity risked per trade (e.g., 0.01 = 1% of account equity).
+sl_atr_mult: Stop-loss distance expressed in multiples of ATR.
+tp_atr_mult: Take-profit distance expressed in multiples of ATR.
+use_trailing: Enables or disables trailing stop mode.
+trail_atr_mult: If trailing is active, defines the trailing distance in ATR multiples.
+cooldown_bars: Minimum number of bars to wait after a trade before allowing another entry.
+max_daily_loss_pct: Daily drawdown limit — halts trading if this percentage of equity is lost in a day.
+
+# --- Fees & slippage ---
+fee_model: Fee model type, e.g., "maker_taker" or "flat".
+entry_is_taker: Whether entry orders execute as takers (incurring taker fees).
+exit_is_taker: Whether exit orders execute as takers.
+taker_fee_pct: Percentage fee applied to taker orders.
+maker_rebate_pct: Rebate applied when acting as a maker (if supported by the venue).
+commission_pct: Generic fallback commission rate (if no maker/taker split is defined).
+slippage_pct: Expected price deviation due to slippage per trade.
+
+# --- Venue-specific overrides ---
 venues:
   binance:
-    taker_fee_pct: 0.0004
-    maker_rebate_pct: 0.0001
-    slippage_pct: 0.0007
+    taker_fee_pct: Taker fee specific to Binance.
+    maker_rebate_pct: Maker rebate specific to Binance.
+    slippage_pct: Expected Binance slippage model.
+  bybit:
+    taker_fee_pct: Taker fee specific to Bybit.
+    maker_rebate_pct: Maker rebate for Bybit.
+    slippage_pct: Expected Bybit slippage model.
 
-initial_equity: 10000
-seed: 42
+# --- Backtest settings ---
+initial_equity: Starting capital for the backtest (in USD or quote currency).
+seed: Random seed used to ensure deterministic results.
+
 ```
 
 ---
