@@ -146,11 +146,6 @@ Higher TF often reduces noise and fees.
 
 ## Roadmap
 
-* Walk-forward splits & grid search
-* Multi-symbol portfolio runs
-* Partial/intrabar fill modeling
-* CCXT Pro live/paper skeleton
-
 ---
 
 ### 🧭 Phase 1 — Treat It Like a Machine Learning Problem
