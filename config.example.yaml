@@ -1,0 +1,23 @@
+
+# Example configuration for the volume-activated breakout backtester
+
+session_tz: America/New_York
+
+# Indicators
+rvol_lookback: 20
+rvol_threshold: 2.0        # trigger when current volume >= threshold * average_volume(lookback)
+breakout_lookback: 50      # enter long if close > highest(high[-lookback:])
+atr_lookback: 14
+atr_pct_min: 0.002         # require ATR >= 0.2% of price to avoid dead quiet regimes
+
+# Risk
+risk_per_trade: 0.01       # 1% of equity risk per trade
+sl_atr_mult: 1.5           # stop at 1.5 x ATR
+tp_atr_mult: 3.0           # take profit at 3 x ATR
+max_concurrent_positions: 1
+
+# Backtest
+initial_equity: 10000
+commission_pct: 0.0005     # 5 bps per side
+slippage_pct: 0.0005
+seed: 42

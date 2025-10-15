@@ -1,0 +1,21 @@
+
+session_tz: America/New_York
+
+# Indicators (smaller lookbacks so a short CSV can still trigger signals)
+rvol_lookback: 5
+rvol_threshold: 1.3
+breakout_lookback: 10
+atr_lookback: 7
+atr_pct_min: 0.0005
+
+# Risk
+risk_per_trade: 0.01
+sl_atr_mult: 1.2
+tp_atr_mult: 2.0
+max_concurrent_positions: 1
+
+# Backtest
+initial_equity: 10000
+commission_pct: 0.0005
+slippage_pct: 0.0005
+seed: 42
