@@ -56,7 +56,7 @@ python3 inspect_csv.py --csv ./binance_BTCUSDT_15m_to_2023/BTCUSDT_15m_normalize
 Use the **pro** config and write outputs to **./output**:
 
 ```bash
-python3 volume_breakout_bot.py   --csv ./binance_BTCUSDT_15m_to_2023/BTCUSDT_15m_normalized.csv   --config config.pro.yaml   --out ./output   --debug   --venue binance
+python3 volume_breakout_bot.py   --csv ./binance_BTCUSDT_15m_to_2023/BTCUSDT_15m_normalized.csv   --config config.yaml   --out ./output   --debug   --venue binance
 ```
 
 ### Outputs
