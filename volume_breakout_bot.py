@@ -315,6 +315,15 @@ def main():
     df = load_prices(Path(args.csv))
     df = to_session_tz(df, cfg["session_tz"])
 
+    try:
+        from features import build_features
+        _feat = build_features(df)
+        # align on timestamp for a slice of key features; avoid heavy joins in production backtests
+        key_cols = ["feat_rvol_l","feat_ema_dist_96","feat_bb_width","feat_atr_pct","feat_trend_bias_96"]
+        df = df.merge(_feat[["timestamp"] + key_cols], on="timestamp", how="left")
+    except Exception as _e:
+        pass
+
     trades, equity, debug_df = backtest(df, cfg, venue=args.venue)
 
     out_dir = Path(args.out).expanduser().resolve()
