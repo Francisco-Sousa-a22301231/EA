@@ -1,109 +1,140 @@
 # Volume-Activated Breakout Bot (Backtester)
 
-This system implements an **enhanced volume-activated breakout** strategy and backtests it on OHLCV data, aligning trading sessions to **New York time (America/New_York)** — from **00:00 → 23:59**.
+An **enhanced volume-activated breakout** backtester for OHLCV data.  
+Sessions align to **New York (America/New_York)**, **00:00 → 23:59**.
+
+> Research tool only — not live trading code.
 
 ---
 
-## 🚀 What It Does
+## What it does
 
-- Converts timestamps to **America/New_York** and anchors sessions at **00:00 NY time**.  
-- Computes:
-  - **Relative Volume (RVOL)** (current vs. rolling average)  
-  - **ATR (Average True Range)** for volatility-based filters  
-- Triggers entries when **price breaks prior highs** *and* volume confirms.  
-- Adds **multi-timeframe confirmation** (e.g., 15m execution + 1h EMA trend filter).  
-- Enforces **risk-per-trade sizing**, **ATR-based stop-loss / take-profit**, and optional **trailing stop**.  
-- Supports **maker-taker / venue-aware fees** and **slippage models**.  
-- Includes **cooldown periods**, **daily risk caps**, and **intraday session windows**.  
-- Produces full debug traces explaining every entry block reason.
-
-> ⚠️ Research use only — not live trading code.
+- Converts timestamps to **America/New_York** and anchors sessions at **NY midnight**.
+- Signals require **breakout + RVOL confirmation + ATR regime filter**.
+- **Multi-timeframe trend** (e.g., 15m execution with 1h EMA confirmation).
+- **Risk-based position sizing**, **ATR stops/targets**, optional **trailing stop**.
+- **Venue-aware fees/slippage** (maker/taker), **cooldown**, **daily circuit breaker**.
+- Rich **debug trace**: why a bar did/didn’t qualify.
 
 ---
 
-## 📊 Input Data Format
+## Data: fastest way (Binance Vision, automatic)
 
-Provide a CSV with the following columns (UTC timestamps recommended):
-
-```
-timestamp,open,high,low,close,volume
-2025-01-01T00:00:00Z,45000,45500,44800,45250,1234
-```
-
-- `timestamp` should be ISO8601 (UTC) — e.g., `...Z`.  
-- Works best with **1m–1h bars**; default configs assume **15m bars**.
-
----
-
-## ⚙️ Quick Start
+Download BTCUSDT **15m** klines from first availability (2017-08) through **2023** (keep 2024–2025 as OOS):
 
 ```bash
-python3 volume_breakout_bot.py   --csv sample_prices_long.csv   --config config.pro.yaml   --out .   --debug   --venue binance
+chmod +x download_binance_klines.sh
+./download_binance_klines.sh BTCUSDT 15m 2017 2023
+```
+
+This produces:
+
+```
+./binance_BTCUSDT_15m_to_2023/
+  raw_zips/                # monthly .zip files
+  csvs/                    # unzipped monthly CSVs
+  BTCUSDT_15m_raw.csv      # merged raw (Binance columns)
+  BTCUSDT_15m_normalized.csv  # normalized: timestamp,open,high,low,close,volume (UTC)
+```
+
+### Sanity-check the dataset
+
+```bash
+python3 inspect_csv.py --csv ./binance_BTCUSDT_15m_to_2023/BTCUSDT_15m_normalized.csv
+# Expect:
+# Start: ~2017-08-17
+# End  : 2023-12-31 23:45:00
+# Inferred timeframe: 15min
+```
+
+> Tip: Binance filenames use **`15m`**; pandas resampling uses **`15min`**. The normalizer maps correctly.
+
+---
+
+## Run a backtest
+
+Use the **pro** config and write outputs to **./output**:
+
+```bash
+python3 volume_breakout_bot.py   --csv ./binance_BTCUSDT_15m_to_2023/BTCUSDT_15m_normalized.csv   --config config.pro.yaml   --out ./output   --debug   --venue binance
 ```
 
 ### Outputs
-- `signals.csv` → entry/exit log  
-- `equity.csv` → equity time series  
-- `equity_curve.png` → plot of performance  
-- `debug_reasons.csv` → detailed signal diagnostics  
-- Console → prints Total Return, Max Drawdown, and Sharpe ratio  
+
+- `./output/signals.csv` — entries/exits with PnL
+- `./output/equity.csv` — equity curve
+- `./output/equity_curve.png` — chart
+- `./output/debug_reasons.csv` — per-bar diagnostics
+- Console: Total Return, Max Drawdown, Naive Sharpe
 
 ---
 
-## 🔧 Key Parameters (config YAML)
+## Config (key knobs)
 
-| Parameter | Purpose |
-|------------|----------|
-| `rvol_lookback` | Bars used to compute average volume |
-| `rvol_threshold` | Minimum RVOL to activate entry |
-| `breakout_lookback` | Lookback for prior-high breakout |
-| `atr_lookback` | ATR smoothing window |
-| `atr_pct_min` | Minimum ATR% of price to avoid quiet markets |
-| `trend_ema_len` | EMA length for trend filter on base timeframe |
-| `htf_minutes` / `htf_ema_len` | Higher timeframe EMA confirmation |
-| `risk_per_trade` | % of equity risked per trade |
-| `sl_atr_mult` / `tp_atr_mult` | Stop-loss / take-profit in ATR multiples |
-| `trail_atr_mult` | Trailing stop multiple (if enabled) |
-| `cooldown_bars` | Bars to wait after exit |
-| `max_daily_loss_pct` | Pause trading after this daily drawdown |
-| `fee_model` | `maker_taker` or `flat` |
-| `venues` | Custom per-venue fee/slippage overrides |
-| `session_tz` | Timezone (keep as `America/New_York`) |
+```yaml
+# config.pro.yaml (excerpt of important fields)
+session_tz: America/New_York
 
----
+# Signal gates
+rvol_lookback: 96          # baseline volume window
+rvol_threshold: 2.6        # require strong volume
+breakout_lookback: 128     # meaningful prior-high breakouts
+atr_lookback: 14
+atr_pct_min: 0.006         # block quiet regimes (tiny stops)
 
-## 🧠 Walk-Forward Optimization
+# Trend filters
+trend_ema_len: 144
+htf_minutes: 60
+htf_ema_len: 96
 
-Evaluate robustness with rolling train/test windows:
+# Risk/exits
+risk_per_trade: 0.0015
+sl_atr_mult: 2.2
+tp_atr_mult: 4.4
+use_trailing: false
+cooldown_bars: 24
+max_daily_loss_pct: 0.01
 
-```bash
-python3 wf_optimize.py   --csv sample_prices_long.csv   --config config.pro.yaml   --out wf_results   --kfolds 6
+# Fees/slippage + venue overrides
+fee_model: maker_taker
+entry_is_taker: true
+exit_is_taker: true
+taker_fee_pct: 0.0006
+slippage_pct: 0.0008
+venues:
+  binance:
+    taker_fee_pct: 0.0004
+    maker_rebate_pct: 0.0001
+    slippage_pct: 0.0007
+
+initial_equity: 10000
+seed: 42
 ```
 
-Output:
-- `walkforward_results.csv` → best parameters per fold + performance metrics.
+---
+
+## Common gotchas
+
+- **Too many trades / fee drag** → raise `rvol_threshold`/`breakout_lookback`, increase `atr_pct_min`, reduce `risk_per_trade`, increase `cooldown_bars`.
 
 ---
 
-## ⚙️ Optional: Live / Paper Skeleton
+## Optional: different timeframe
 
-To extend into real-time mode later:
+Generate 1h bars from the same raw:
+
 ```bash
-python3 live_skeleton.py --config live.yaml
+python3 normalize_ohlcv.py   --in ./binance_BTCUSDT_15m_to_2023/BTCUSDT_15m_raw.csv   --out ./bt_BTCUSDT_1h.csv   --format binance   --timeframe 1H
 ```
 
-This script:
-- Loads config  
-- Prepares structure for **CCXT Pro streaming** and **REST order routing**  
-- Enforces **New York session hours** and **daily risk caps**
-
-(Execution and exchange wiring left for later development.)
+Run the same backtest with `--csv ./bt_BTCUSDT_1h.csv`.  
+Higher TF often reduces noise and fees.
 
 ---
 
-## 🧩 Next Steps
+## Roadmap
 
-- Add **partial fill logic** and **intrabar fills** for realism.  
-- Implement **multi-symbol** backtesting.  
-- Integrate **CCXT Pro** for live streaming/paper trading.  
-- Combine with **walk-forward** for production-grade robustness testing.
+- Walk-forward splits & grid search
+- Multi-symbol portfolio runs
+- Partial/intrabar fill modeling
+- CCXT Pro live/paper skeleton

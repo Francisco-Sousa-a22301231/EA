@@ -6,3 +6,12 @@
 /misc.xml
 /modules.xml
 
+/vcs.xml
+
+# Binance data and outputs
+binance_BTCUSDT_15m_to_2023/
+output/
+*.zip
+*.csv
+*.png
+*.ipynb_checkpoints
