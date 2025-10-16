@@ -145,26 +145,119 @@ Higher TF often reduces noise and fees.
 
 ## Roadmap
 
+---
+
 ### 🧭 Phase 1 — Treat It Like a Machine Learning Problem
-*(unchanged)*
+
+Your trading system is now a **feature–response model**:
+
+* **Features (X)** → derived from OHLCV data: volume spikes, breakout distance, ATR ratios, EMAs, RSI, etc.
+* **Response (Y)** → future returns or next-bar direction (profit/loss outcome).
+
+**Lifecycle:**
+
+1. **Feature Engineering** → build indicators and context variables.
+2. **Labeling / Target Definition** → define what “success” means (e.g., +1 ATR move within 10 bars).
+3. **Modeling** → use statistical or ML models to predict higher-probability setups.
+4. **Strategy Integration** → convert predictions into position sizing, filters, or entries.
+5. **Validation** → walk-forward backtesting and out-of-sample (OOS) testing.
+
+---
 
 ### 🔬 Phase 2 — Expand the Dataset & Feature Space
-*(unchanged)*
+
+To find **robust, generalizable alpha**, expand your research base.
+
+#### 1. Broaden the symbol universe
+
+```bash
+./download_binance_klines.sh ETHUSDT 15m 2017 2023
+./download_binance_klines.sh BNBUSDT 15m 2017 2023
+```
+
+Test generalization across pairs and timeframes.
+
+#### 2. Engineer advanced features
+
+Add:
+
+* **Technical:** RSI, MACD, VWAP, Bollinger Band width, volume delta
+* **Volatility:** realized volatility, ATR percentile rank
+* **Structural:** day of week, hour of day, volatility cluster index
+* **Microstructure:** wick/body ratios, relative volume deciles
+
+#### 3. Regime classification
+
+Use clustering (KMeans, HDBSCAN) to identify **market regimes** (trend, chop, squeeze).
+Run separate backtests per regime to expose context sensitivity.
+
+---
 
 ### 🧠 Phase 3 — Predictive Modeling
-*(unchanged)*
+
+Replace fixed thresholds with **data-driven models**.
+
+| Type                   | Example                 | Purpose                    |
+| ---------------------- | ----------------------- | -------------------------- |
+| Bayesian Optimization  | scikit-optimize, Optuna | Auto-tunes parameters      |
+| Classification ML      | XGBoost, LightGBM       | Predicts profitable trades |
+| Reinforcement Learning | Stable-Baselines3       | Learns dynamic entry/exit  |
+| Meta-models            | stacking, blending      | Combines multiple signals  |
+
+Train ML models with `future_return > 0` as the target.
+
+---
 
 ### ⚙️ Phase 4 — Walk-Forward + Out-of-Sample Validation
-*(unchanged)*
+
+Simulate realistic **train/test** sequences:
+
+* **Train:** 2017–2023
+* **Test:** 2024–2025 (OOS)
+
+**Metrics:**
+
+* CAGR
+* Sharpe Ratio
+* Max Drawdown
+* Win Rate / Expectancy
+* Profit Factor
+
+Automate with `wf_optimize.py` or integrate with frameworks like **bt**, **Backtrader**, or **Zipline**.
+
+---
 
 ### ⚡ Phase 5 — Portfolio Construction & Leverage
-*(unchanged)*
+
+Once single-signal stability is achieved:
+
+* Combine **uncorrelated strategies** (trend + mean reversion).
+* Optimize allocations via **cvxpy** or **Hierarchical Risk Parity (HRP)**.
+* Scale positions using **Kelly criterion** or **volatility targeting**.
+
+---
 
 ### 💸 Phase 6 — Deployment for Passive Income
-*(unchanged)*
+
+After statistical validation:
+
+* Wrap logic into a **live trading bot** using **CCXT Pro** + async websockets.
+* Deploy on VPS or cloud (AWS/Linode/Hetzner).
+* Start with **paper trading**, then small live capital.
+* Implement **equity curve feedback** to throttle risk during drawdowns.
+
+---
 
 ### 🔑 Tooling Stack for Research
-*(unchanged)*
+
+| Purpose              | Library                                 |
+| -------------------- | --------------------------------------- |
+| Data manipulation    | pandas, numpy                           |
+| Technical indicators | ta, vectorbt, bt                        |
+| Machine learning     | scikit-learn, xgboost, lightgbm, optuna |
+| Visualization        | matplotlib, plotly, seaborn             |
+| Portfolio analytics  | empyrical, pyfolio, quantstats          |
+| Optimization         | optuna, skopt, bayesian-optimization    |
 
 ---
 
