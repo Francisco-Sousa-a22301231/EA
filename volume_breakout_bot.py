@@ -7,6 +7,7 @@ import pytz
 from pathlib import Path
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
+import json
 
 # ================= Utilities =================
 
@@ -142,6 +143,12 @@ def compute_indicators(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     df["dbg_trend_ok_htf"] = df["trend_ok_htf"].fillna(False)
     df["dbg_window_ok"] = df["in_window"].fillna(False)
 
+    # Optional ML gate (probability governor)
+    if "proba_tp_first" in df.columns:
+        df["ml_ok"] = True  # default pass-through
+    else:
+        df["ml_ok"] = True
+
     return df
 
 def backtest(df: pd.DataFrame, cfg: dict, venue: str = "default"):
@@ -223,8 +230,21 @@ def backtest(df: pd.DataFrame, cfg: dict, venue: str = "default"):
         if cooldown_bars > 0:
             cooldown_bars -= 1
 
-        # consider entries
+            # consider entries
         if (not paused_until_next_day) and pos is None and cooldown_bars == 0 and bool(df["long_signal"].iat[i]):
+
+            # ML probability governor (if present + threshold configured)
+            proba = float(row["proba_tp_first"]) if "proba_tp_first" in df.columns and not pd.isna(row["proba_tp_first"]) else None
+            th = cfg.get("ml_threshold", None)  # allow config-based default too
+            # prefer CLI over config if provided
+            if th is None:
+                th = globals().get("_cli_ml_threshold", None)
+            ml_gate_ok = True
+            if (proba is not None) and (th is not None):
+                ml_gate_ok = proba >= float(th)
+            if not ml_gate_ok:
+                continue
+
             atr_val = float(row["atr"]) if not np.isnan(row["atr"]) else None
             if atr_val is None or atr_val <= 0:
                 continue
@@ -232,7 +252,34 @@ def backtest(df: pd.DataFrame, cfg: dict, venue: str = "default"):
             tp = price + cfg["tp_atr_mult"] * atr_val
             if sl <= 0 or (price - sl) <= 0:
                 continue
-            risk_amount = equity * cfg["risk_per_trade"]
+
+            # Base risk
+            base_risk = equity * cfg["risk_per_trade"]
+
+            # Probability → size multiplier
+            size_mode = cfg.get("ml_size_mode", "fixed")
+            cli_mode = globals().get("_cli_ml_size_mode", None)
+            if cli_mode is not None:
+                size_mode = cli_mode
+            size_mult = 1.0
+            if (proba is not None):
+                if size_mode == "linear":
+                    # map [th,1] → [1, cap]
+                    cap = float(cfg.get("ml_size_cap", 2.0))
+                    p0 = float(th) if th is not None else 0.5
+                    if proba <= p0:
+                        size_mult = 1.0
+                    else:
+                        size_mult = 1.0 + (cap - 1.0) * (proba - p0) / max(1e-9, 1.0 - p0)
+                elif size_mode == "kelly_cap":
+                    # approximate edge via calibrated proba against 1:1 R (your TP:SL is ~2R, even better)
+                    # raw kelly = 2p-1 (bounded), then clip → [0.25, cap]
+                    cap = float(cfg.get("ml_size_cap", 2.0))
+                    k = max(0.0, min(2*proba - 1.0, 1.0))  # [0,1]
+                    size_mult = min(cap, max(0.25, 0.25 + 0.75*k))
+                # fixed → 1.0
+
+            risk_amount = base_risk * size_mult
             stop_distance = price - sl
             size = risk_amount / stop_distance
 
@@ -243,6 +290,7 @@ def backtest(df: pd.DataFrame, cfg: dict, venue: str = "default"):
 
             trailing_mult = cfg.get("trail_atr_mult", None) if cfg.get("use_trailing", False) else None
             pos = Trade(entry_time=ts, entry_price=price, size=size, stop=sl, take=tp, trailing_mult=trailing_mult, session_day=row["session_day"])
+
 
     # close at last
     if pos is not None:
@@ -288,19 +336,11 @@ def plot_equity(equity: pd.DataFrame, out_path: Path):
     plt.tight_layout()
     plt.savefig(out_path)
 
-def run_once(csv_path: Path, config_path: Path, out_dir: Path, debug: bool=False, venue: str="default"):
-    cfg = read_config(config_path)
-    df = load_prices(csv_path)
-    df = to_session_tz(df, cfg["session_tz"])
-    trades, equity, debug_df = backtest(df, cfg, venue=venue)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "signals.csv").write_text(trades.to_csv(index=False))
-    (out_dir / "equity.csv").write_text(equity.to_csv(index=False))
-    plot_equity(equity, out_dir / "equity_curve.png")
-    if debug:
-        (out_dir / "debug_reasons.csv").write_text(debug_df.to_csv(index=False))
-    m = metrics(equity)
-    return m
+def _merge_ml_preds(df, path):
+    preds = pd.read_csv(path)
+    preds["timestamp"] = pd.to_datetime(preds["timestamp"], utc=True, errors="coerce")
+    preds = preds.dropna(subset=["timestamp"]).sort_values("timestamp")
+    return df.merge(preds[["timestamp","proba_tp_first"]], on="timestamp", how="left")
 
 def main():
     parser = argparse.ArgumentParser()
@@ -309,11 +349,26 @@ def main():
     parser.add_argument("--out", type=str, default=".", help="Output directory")
     parser.add_argument("--debug", action="store_true", help="Write debug_reasons.csv")
     parser.add_argument("--venue", type=str, default="default", help="Venue key in config.venues")
+    parser.add_argument("--ml_preds", type=str, default=None,
+                        help="Path to oos_predictions.csv (timestamp,proba_tp_first[,y_true])")
+    parser.add_argument("--ml_threshold", type=float, default=None,
+                        help="If set, require proba>=threshold to allow entries")
+    parser.add_argument("--ml_size_mode", type=str, default="fixed",
+                        choices=["fixed","linear","kelly_cap"],
+                        help="How to map proba to size multiplier")
+    parser.add_argument("--ml_size_cap", type=float, default=2.0,
+                        help="Cap on size multiplier when using probability-based sizing")
     args = parser.parse_args()
+
+    globals()["_cli_ml_threshold"] = args.ml_threshold
+    globals()["_cli_ml_size_mode"] = args.ml_size_mode
 
     cfg = read_config(Path(args.config))
     df = load_prices(Path(args.csv))
     df = to_session_tz(df, cfg["session_tz"])
+
+    if args.ml_preds:
+        df = _merge_ml_preds(df, args.ml_preds)
 
     try:
         from features import build_features

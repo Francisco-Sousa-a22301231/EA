@@ -160,6 +160,13 @@ def main():
     ap.add_argument("--horizon", type=int, default=96, help="Horizon in bars (e.g., 96 ~ 1 day for 15m)")
     ap.add_argument("--tp_atr_mult", type=float, default=4.0, help="TP barrier multiple of ATR[t]")
     ap.add_argument("--sl_atr_mult", type=float, default=2.0, help="SL barrier multiple of ATR[t]")
+    ap.add_argument("--meta_from_signal_csv", type=str, default=None,
+                    help="Optional: path to debug_reasons.csv (or any file with timestamp,long_signal) to meta-label only when base signal==True.")
+    ap.add_argument("--label_mode", type=str, default="triple_barrier",
+                    choices=["triple_barrier","fwd_sign","fwd_qcut"],
+                    help="Alternative label modes for experimentation.")
+    ap.add_argument("--qcut", type=int, default=5,
+                    help="Number of quantiles for fwd_qcut mode.")
     args = ap.parse_args()
 
     inp = Path(args.inp); outp = Path(args.out)
@@ -170,10 +177,42 @@ def main():
     df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
     df = df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
 
+    # --- Meta-labeling support (optional) ---
+    meta_mask = None
+    if args.meta_from_signal_csv:
+        sig = pd.read_csv(args.meta_from_signal_csv)
+        sig["timestamp"] = pd.to_datetime(sig["timestamp"], utc=True, errors="coerce")
+        # Keep only the fields we need and align on timestamp
+        sig = sig[["timestamp", "long_signal"]].dropna()
+        merged = df[["timestamp"]].merge(sig, on="timestamp", how="left")
+        # Boolean vector aligned to df rows
+        meta_mask = merged["long_signal"].fillna(False).astype(bool).values
+
     labels = build_labels(df, args.horizon, args.tp_atr_mult, args.sl_atr_mult)
+    if args.label_mode != "triple_barrier":
+        H = int(args.horizon)
+        close = df["close"].astype(float).values
+        close_fwd_H = np.r_[close[H:], np.full(H, np.nan)]
+        ret_h = (close_fwd_H / close) - 1.0
+        if args.label_mode == "fwd_sign":
+            label_alt = np.zeros(len(ret_h), dtype=np.int8)
+            label_alt[ret_h > 0] = 1
+            label_alt[ret_h < 0] = -1
+        else:  # fwd_qcut
+            sr = pd.Series(ret_h)
+            label_alt = pd.qcut(sr.rank(method="first"), args.qcut, labels=False)
+            # map lowest→-2 ... highest→+2 for 5-quantiles, for example
+            mid = (args.qcut - 1) / 2.0
+            label_alt = (label_alt - mid).astype("int8")
+        labels["label"] = label_alt
+        labels["ret_h"] = ret_h
+        labels["hit_type"] = np.where(label_alt > 0, "TP", np.where(label_alt < 0, "SL", "NONE"))
 
     # Merge back onto features for a single ML table
     full = df.merge(labels, on="timestamp", how="left")
+
+    if meta_mask is not None:
+        full["meta_base_signal"] = meta_mask.astype(int)
 
     # Drop rows with NaNs at the tail due to horizon (optional: keep if you want inference-only)
     full_clean = full[full["ret_h"].notna()].reset_index(drop=True)

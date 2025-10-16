@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 import json
 import warnings
-
 # Try XGBoost; fall back to RandomForest if missing
 try:
     import xgboost as xgb
@@ -16,7 +15,7 @@ except Exception:
 
 from sklearn.metrics import roc_auc_score, average_precision_score
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, KFold
 
 # Columns that are NOT model features
 NON_FEATURE_COLS = {
@@ -194,6 +193,23 @@ def walk_forward_eval(df: pd.DataFrame,
             "folds": results
         }, indent=2))
 
+def purged_kfold_indices(n, folds, embargo):
+    idx = np.arange(n)
+    fold_sizes = np.full(folds, n // folds, dtype=int)
+    fold_sizes[:n % folds] += 1
+    current = 0
+    for k in range(folds):
+        start, stop = current, current + fold_sizes[k]
+        test_idx = idx[start:stop]
+        left  = max(0, start - embargo)
+        right = min(n, stop + embargo)
+        train_mask = np.ones(n, dtype=bool)
+        train_mask[left:right] = False
+        train_idx = idx[train_mask]
+        current = stop
+        yield train_idx, test_idx
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--in", dest="inp", required=True, help="dataset_ml.parquet/csv from make_labels.py")
@@ -206,6 +222,10 @@ def main():
     ap.add_argument("--wf_start", type=int, default=2020, help="first test year (inclusive)")
     ap.add_argument("--wf_end",   type=int, default=2024, help="last  test year (inclusive)")
     ap.add_argument("--save_per_fold", action="store_true", help="save per-fold models and predictions")
+    ap.add_argument("--purged_cv", action="store_true", help="Do purged KFold with embargo for validation metrics")
+    ap.add_argument("--cv_folds", type=int, default=5)
+    ap.add_argument("--cv_embargo_bars", type=int, default=96)
+    ap.add_argument("--export_feature_importance", action="store_true")
     args = ap.parse_args()
 
     outdir = Path(args.outdir); outdir.mkdir(parents=True, exist_ok=True)
@@ -245,12 +265,39 @@ def main():
     if len(y_test) == 0:
         raise ValueError("Test set is empty. Use --walk_forward or include OOS data (e.g., 2024).")
 
+    if args.purged_cv:
+        n = len(df_train)
+        X_all = df_train[X_cols].astype(float).values
+        y_all = (df_train["label"] == 1).astype(int).values
+        aucs, aps = [], []
+        embargo = int(args.cv_embargo_bars)
+        for tr_idx, te_idx in purged_kfold_indices(n, args.cv_folds, embargo):
+            Xtr, Xte = X_all[tr_idx], X_all[te_idx]
+            ytr, yte = y_all[tr_idx], y_all[te_idx]
+            pos = int(ytr.sum()); neg = int(len(ytr) - pos)
+            spw = float(neg) / max(1.0, float(pos))
+            clf_cv = make_model(spw=spw, seed=args.seed)
+            model_cv, _ = fit_with_optional_calibration(clf_cv, Xtr, ytr, args.calibrate)
+            p_cv = predict_proba01(model_cv, Xte)
+            aucs.append(float(roc_auc_score(yte, p_cv)))
+            aps.append(float(average_precision_score(yte, p_cv)))
+        cv_report = {
+            "cv_auc_mean": float(np.mean(aucs)),
+            "cv_ap_mean": float(np.mean(aps)),
+            "fold_aucs": aucs,
+            "fold_aps": aps,
+            "folds": args.cv_folds,
+            "embargo_bars": embargo
+        }
+        save_json(cv_report, outdir / "cv_report.json")
+
     # Class imbalance: compute scale_pos_weight on TRAIN
     pos = int(y_train.sum())
     neg = int(len(y_train) - pos)
     spw = float(neg) / max(1.0, float(pos))
 
     clf = make_model(spw=spw, seed=args.seed)
+
     model, was_calibrated = fit_with_optional_calibration(clf, X_train, y_train, args.calibrate)
 
     p_train = predict_proba01(model, X_train)
@@ -271,6 +318,25 @@ def main():
         "rows": {"train": int(len(y_train)), "test": int(len(y_test)), "total": int(len(df))}
     }
     save_json(metrics, outdir / "metrics.json")
+
+    if args.export_feature_importance:
+        try:
+            if HAS_XGB and not was_calibrated:
+                booster = model.get_booster()
+                imp = booster.get_score(importance_type="gain")
+                imp_df = pd.DataFrame({
+                    "feature": list(imp.keys()),
+                    "gain": list(imp.values())
+                }).sort_values("gain", ascending=False)
+            else:
+                fi = getattr(model, "feature_importances_", None)
+                if fi is not None:
+                    imp_df = pd.DataFrame({"feature": X_cols, "gain": fi}).sort_values("gain", ascending=False)
+                else:
+                    imp_df = pd.DataFrame({"feature": X_cols, "gain": 0.0})
+            imp_df.to_csv(outdir / "feature_importance.csv", index=False)
+        except Exception as _e:
+            pass
 
     # Save predictions (OOS) aligned with timestamps
     oos = df_test[["timestamp"]].copy()

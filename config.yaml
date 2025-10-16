@@ -1,3 +1,7 @@
+# ============================================
+# VOLUME BREAKOUT BOT CONFIG (ML-GATED VERSION)
+# ============================================
+
 session_tz: America/New_York
 
 # --- Signal gates (stricter; favor real expansions) ---
@@ -45,6 +49,12 @@ venues:
     taker_fee_pct: 0.00055
     maker_rebate_pct: 0.0002
     slippage_pct: 0.0010
+
+# --- ML governor (added for phase 2–3 integration) ---
+ml_preds: ./output/model_xgb/oos_predictions.csv
+ml_threshold: 0.58          # minimum probability to allow trade
+ml_size_mode: kelly_cap     # position sizing based on probability
+ml_size_cap: 2.0            # cap multiplier for position size
 
 # --- Backtest ---
 initial_equity: 10000
